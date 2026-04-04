@@ -153,7 +153,7 @@ export default function ResultsPage() {
                     </div>
 
                     <div className="relative w-16 h-16 rounded-lg bg-secondary flex items-center justify-center">
-                      <span className="text-3xl font-bold text-primary">
+                      <span className="text-3xl font-bold text-white">
                         {career.match}
                       </span>
                       <span className="text-xs text-muted-foreground absolute -bottom-5">
