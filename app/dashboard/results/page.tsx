@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BookOpen, Lightbulb, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -90,7 +90,7 @@ function saveCachedResults(payload: CachedResultBundle): void {
   );
 }
 
-export default function ResultsPage() {
+function ResultsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAlgorithm =
@@ -372,5 +372,21 @@ export default function ResultsPage() {
         </Tabs>
       </main>
     </div>
+  );
+}
+
+function ResultsPageFallback() {
+  return (
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100 p-8 text-slate-600">
+      Loading results...
+    </div>
+  );
+}
+
+export default function ResultsPage() {
+  return (
+    <Suspense fallback={<ResultsPageFallback />}>
+      <ResultsPageContent />
+    </Suspense>
   );
 }
