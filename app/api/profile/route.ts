@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getDbPool } from "@/lib/db";
+import { regenerateQuizVariantForStudent } from "@/lib/quiz-generation";
 import { getAuthenticatedUserId } from "@/lib/server-auth";
 import { broadcastUpdate } from "@/lib/sse-utils";
 
@@ -137,6 +138,12 @@ export async function PUT(request: NextRequest) {
        WHERE id = ?`,
       [name, email, grade, stream, userId],
     );
+
+    try {
+      await regenerateQuizVariantForStudent(userId);
+    } catch {
+      // Keep profile update resilient if quiz regeneration fails.
+    }
 
     // Broadcast the update
     broadcastUpdate(userId, "profile_updated", {

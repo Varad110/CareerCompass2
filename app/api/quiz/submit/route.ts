@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getDbPool } from "@/lib/db";
+import { regenerateQuizVariantForStudent } from "@/lib/quiz-generation";
 import { computeAndPersistResults } from "@/lib/recommendation-engine";
+import { ensureQuizSchema } from "@/lib/quiz-schema";
 import { getAuthenticatedUserId } from "@/lib/server-auth";
 import { broadcastUpdate } from "@/lib/sse-utils";
 
@@ -16,6 +18,7 @@ type SubmitBody = {
 
 type QuestionTraitRow = {
   id: number;
+  quiz_variant_id: number | null;
   trait_a: string;
   trait_b: string;
   trait_c: string;
@@ -42,6 +45,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  await ensureQuizSchema();
+
   const questionIds = answers.map((item) => item.questionId);
   const pool = getDbPool();
   const connection = await pool.getConnection();
@@ -50,7 +55,7 @@ export async function POST(request: NextRequest) {
     await connection.beginTransaction();
 
     const [questionRows] = await connection.query(
-      `SELECT id, trait_a, trait_b, trait_c, trait_d
+      `SELECT id, quiz_variant_id, trait_a, trait_b, trait_c, trait_d
        FROM quiz_questions
        WHERE id IN (${questionIds.map(() => "?").join(",")})`,
       questionIds,
@@ -69,6 +74,9 @@ export async function POST(request: NextRequest) {
     ]);
 
     const traitTotals = new Map<string, number>();
+    const variantId =
+      (questionRows as QuestionTraitRow[]).find((row) => row.quiz_variant_id)
+        ?.quiz_variant_id ?? null;
 
     for (const answer of answers) {
       const question = traitMap.get(answer.questionId);
@@ -86,9 +94,9 @@ export async function POST(request: NextRequest) {
               : question.trait_d;
 
       await connection.query(
-        `INSERT INTO quiz_responses (student_id, question_id, selected_option, trait_scored)
-         VALUES (?, ?, ?, ?)`,
-        [userId, answer.questionId, answer.selectedOption, trait],
+        `INSERT INTO quiz_responses (student_id, quiz_variant_id, question_id, selected_option, trait_scored)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, variantId, answer.questionId, answer.selectedOption, trait],
       );
 
       traitTotals.set(trait, (traitTotals.get(trait) ?? 0) + 1);
@@ -117,9 +125,9 @@ export async function POST(request: NextRequest) {
       ) + 1;
 
     await connection.query(
-      `INSERT INTO quiz_attempts (student_id, attempt_number, total_score)
-       VALUES (?, ?, ?)`,
-      [userId, attemptNumber, answers.length],
+      `INSERT INTO quiz_attempts (student_id, quiz_variant_id, attempt_number, total_score)
+       VALUES (?, ?, ?, ?)`,
+      [userId, variantId, attemptNumber, answers.length],
     );
 
     await connection.commit();
@@ -133,6 +141,12 @@ export async function POST(request: NextRequest) {
   }
 
   const results = await computeAndPersistResults(userId);
+
+  try {
+    await regenerateQuizVariantForStudent(userId);
+  } catch {
+    // Keep submit flow resilient if next-quiz generation fails.
+  }
 
   // Broadcast real-time update with new results
   broadcastUpdate(userId, "quiz_completed", {

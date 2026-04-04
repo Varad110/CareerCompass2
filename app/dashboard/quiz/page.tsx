@@ -7,6 +7,10 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Compass } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  computeOfflineCareerResults,
+  type OfflineQuizQuestion,
+} from "@/lib/offline-career-recommendations";
 
 type QuizOption = {
   id: "a" | "b" | "c" | "d";
@@ -24,12 +28,110 @@ type QuizQuestion = {
 type QuizQuestionResponse = {
   ok: boolean;
   questions: QuizQuestion[];
+  quizVariant?: {
+    id: number;
+    key: string;
+    generationMode: string;
+    questionCount: number;
+    createdAt: string;
+    seedPayload: unknown;
+  } | null;
 };
+
+type OfflineResultBundle = {
+  results: ReturnType<typeof computeOfflineCareerResults>["results"];
+  traits: ReturnType<typeof computeOfflineCareerResults>["traits"];
+  source: "server" | "offline";
+  quizVariantId: number | null;
+  createdAt: string;
+};
+
+type QuizSubmissionResponse = {
+  ok: boolean;
+  message?: string;
+  results?: ReturnType<typeof computeOfflineCareerResults>["results"];
+};
+
+type RegenerateQuizResponse = {
+  ok: boolean;
+  message?: string;
+  quizVariant?: QuizQuestionResponse["quizVariant"];
+  questions?: QuizQuestion[];
+};
+
+function toGenerationLabel(mode: string | null): string {
+  if (mode === "ai") {
+    return "AI";
+  }
+
+  if (mode === "fallback") {
+    return "Fallback";
+  }
+
+  return "Seed";
+}
+
+function toStorageLabel(source: string | null): string {
+  if (source === "fresh") {
+    return "New quiz generated and stored";
+  }
+
+  if (source === "regenerated") {
+    return "Quiz regenerated and stored";
+  }
+
+  if (source === "cached") {
+    return "Loaded from cache";
+  }
+
+  return "Quiz loaded";
+}
+
+const QUIZ_CACHE_KEY = "campuscompass.quiz.cache";
+const QUIZ_RESULT_CACHE_KEY = "campuscompass.quiz.result";
+
+function canUseBrowserStorage(): boolean {
+  return typeof window !== "undefined";
+}
+
+function loadCachedQuiz(): QuizQuestionResponse | null {
+  if (!canUseBrowserStorage()) {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(QUIZ_CACHE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as QuizQuestionResponse;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedQuiz(payload: QuizQuestionResponse): void {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(QUIZ_CACHE_KEY, JSON.stringify(payload));
+}
+
+function saveCachedResult(payload: OfflineResultBundle): void {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(QUIZ_RESULT_CACHE_KEY, JSON.stringify(payload));
+}
 
 export default function QuizPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState("");
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -37,6 +139,16 @@ export default function QuizPage() {
     {},
   );
   const [completed, setCompleted] = useState(false);
+  const [completionSource, setCompletionSource] = useState<
+    "server" | "offline" | null
+  >(null);
+  const [quizVariantId, setQuizVariantId] = useState<number | null>(null);
+  const [quizGenerationMode, setQuizGenerationMode] = useState<string | null>(
+    null,
+  );
+  const [quizStorageState, setQuizStorageState] = useState<
+    "fresh" | "regenerated" | "cached" | null
+  >(null);
 
   const loadQuestions = async () => {
     try {
@@ -50,13 +162,42 @@ export default function QuizPage() {
 
       const result = (await response.json()) as QuizQuestionResponse;
       if (!response.ok || !result.ok) {
+        const cached = loadCachedQuiz();
+        if (cached?.questions?.length) {
+          setQuestions(cached.questions);
+          setQuizVariantId(cached.quizVariant?.id ?? null);
+          setQuizGenerationMode(cached.quizVariant?.generationMode ?? "seed");
+          setQuizStorageState("cached");
+          setError(
+            "Loaded cached quiz questions because the network is unavailable.",
+          );
+          return;
+        }
+
         setError("Unable to load quiz questions.");
         return;
       }
 
       setQuestions(result.questions);
+      setQuizVariantId(result.quizVariant?.id ?? null);
+      setQuizGenerationMode(result.quizVariant?.generationMode ?? "seed");
+      setQuizStorageState("fresh");
+      saveCachedQuiz(result);
+
       setError("");
     } catch {
+      const cached = loadCachedQuiz();
+      if (cached?.questions?.length) {
+        setQuestions(cached.questions);
+        setQuizVariantId(cached.quizVariant?.id ?? null);
+        setQuizGenerationMode(cached.quizVariant?.generationMode ?? "seed");
+        setQuizStorageState("cached");
+        setError(
+          "Loaded cached quiz questions because the network is unavailable.",
+        );
+        return;
+      }
+
       setError("Network error while loading quiz.");
     } finally {
       setLoading(false);
@@ -100,6 +241,11 @@ export default function QuizPage() {
       }),
     );
 
+    const offlineBundle = computeOfflineCareerResults(
+      questions as OfflineQuizQuestion[],
+      answers,
+    );
+
     setSubmitting(true);
     setError("");
 
@@ -110,20 +256,78 @@ export default function QuizPage() {
         body: JSON.stringify({ answers: payload }),
       });
 
-      const result = (await response.json()) as {
-        ok: boolean;
-        message?: string;
-      };
+      const result = (await response.json()) as QuizSubmissionResponse;
       if (!response.ok || !result.ok) {
-        setError(result.message ?? "Failed to submit quiz.");
+        if (response.status >= 400 && response.status < 500) {
+          setError(result.message ?? "Failed to submit quiz.");
+          return;
+        }
+
+        throw new Error(result.message ?? "Failed to submit quiz.");
+      }
+
+      saveCachedResult({
+        results: result.results ?? offlineBundle.results,
+        traits: offlineBundle.traits,
+        source: "server",
+        quizVariantId,
+        createdAt: new Date().toISOString(),
+      });
+      setCompleted(true);
+      setCompletionSource("server");
+    } catch {
+      saveCachedResult({
+        results: offlineBundle.results,
+        traits: offlineBundle.traits,
+        source: "offline",
+        quizVariantId,
+        createdAt: new Date().toISOString(),
+      });
+
+      setCompleted(true);
+      setCompletionSource("offline");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRegenerateQuiz = async () => {
+    setRegenerating(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/quiz/regenerate", {
+        method: "POST",
+      });
+
+      if (response.status === 401) {
+        router.push("/login");
         return;
       }
 
-      setCompleted(true);
+      const result = (await response.json()) as RegenerateQuizResponse;
+      if (!response.ok || !result.ok || !result.questions?.length) {
+        setError(result.message ?? "Failed to regenerate quiz.");
+        return;
+      }
+
+      const payload: QuizQuestionResponse = {
+        ok: true,
+        questions: result.questions,
+        quizVariant: result.quizVariant ?? null,
+      };
+
+      setQuestions(result.questions);
+      setQuizVariantId(result.quizVariant?.id ?? null);
+      setQuizGenerationMode(result.quizVariant?.generationMode ?? "seed");
+      setQuizStorageState("regenerated");
+      setAnswers({});
+      setCurrentQuestion(0);
+      saveCachedQuiz(payload);
     } catch {
-      setError("Network error while submitting quiz.");
+      setError("Network error while regenerating quiz.");
     } finally {
-      setSubmitting(false);
+      setRegenerating(false);
     }
   };
 
@@ -136,7 +340,7 @@ export default function QuizPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary p-8 text-muted-foreground">
+      <div className="min-h-screen bg-linear-to-br from-background via-background to-secondary p-8 text-muted-foreground">
         Loading quiz...
       </div>
     );
@@ -144,7 +348,7 @@ export default function QuizPage() {
 
   if (completed) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
+      <div className="min-h-screen bg-linear-to-br from-background via-background to-secondary">
         <div className="max-w-2xl mx-auto px-4 py-20 flex items-center justify-center min-h-[calc(100vh-64px)]">
           <Card className="p-8 sm:p-12 border-border/40 text-center space-y-6 w-full">
             <div className="flex justify-center">
@@ -157,8 +361,9 @@ export default function QuizPage() {
                 Quiz Completed
               </h2>
               <p className="text-muted-foreground">
-                Your quiz responses were saved and your recommendations were
-                recalculated.
+                {completionSource === "offline"
+                  ? "Your quiz was analyzed locally and saved on this device until the network returns."
+                  : "Your quiz responses were saved and your recommendations were recalculated."}
               </p>
             </div>
             <Link href="/dashboard/results" className="block">
@@ -174,7 +379,7 @@ export default function QuizPage() {
 
   if (!questions.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary p-8 text-muted-foreground">
+      <div className="min-h-screen bg-linear-to-br from-background via-background to-secondary p-8 text-muted-foreground">
         No quiz questions found.
       </div>
     );
@@ -185,7 +390,7 @@ export default function QuizPage() {
   const allAnswered = Object.keys(answers).length === questions.length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
+    <div className="min-h-screen bg-linear-to-br from-background via-background to-secondary">
       <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link
@@ -200,6 +405,9 @@ export default function QuizPage() {
             <span className="font-medium text-foreground">
               Career Assessment
             </span>
+            <Badge variant="outline" className="capitalize">
+              Mode: {toGenerationLabel(quizGenerationMode)}
+            </Badge>
           </div>
           <p className="text-muted-foreground text-sm">
             Question {currentQuestion + 1} of {questions.length}
@@ -208,6 +416,17 @@ export default function QuizPage() {
       </nav>
 
       <div className="max-w-3xl mx-auto px-4 py-8">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="capitalize">
+            {toStorageLabel(quizStorageState)}
+          </Badge>
+          {quizVariantId ? (
+            <Badge variant="outline" className="text-muted-foreground">
+              Variant #{quizVariantId}
+            </Badge>
+          ) : null}
+        </div>
+
         {error ? (
           <p className="text-sm text-destructive mb-4">{error}</p>
         ) : null}
@@ -280,6 +499,15 @@ export default function QuizPage() {
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Previous
+          </Button>
+
+          <Button
+            onClick={handleRegenerateQuiz}
+            disabled={regenerating || submitting}
+            variant="outline"
+            className="border-border/40"
+          >
+            {regenerating ? "Regenerating..." : "Regenerate Quiz"}
           </Button>
 
           {currentQuestion < questions.length - 1 ? (

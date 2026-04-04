@@ -2,13 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getDbPool } from "@/lib/db";
 import { regenerateQuizVariantForStudent } from "@/lib/quiz-generation";
-import { ensureQuizSchema } from "@/lib/quiz-schema";
 import { getAuthenticatedUserId } from "@/lib/server-auth";
 
 type QuestionRow = {
   id: number;
-  quiz_variant_id: number | null;
-  question_order: number | null;
   question_text: string;
   option_a: string;
   option_b: string;
@@ -19,7 +16,6 @@ type QuestionRow = {
   trait_c: string;
   trait_d: string;
   category: string;
-  ai_generated: number;
 };
 
 type VariantRow = {
@@ -34,21 +30,7 @@ type VariantRow = {
   created_at: string;
 };
 
-type StudentSeedRow = {
-  name: string;
-  grade: string;
-  stream: string;
-};
-
-type SkillRow = {
-  skill_name: string;
-};
-
-type InterestRow = {
-  interest_name: string;
-};
-
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const userId = getAuthenticatedUserId(request);
 
   if (!userId) {
@@ -58,18 +40,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  await ensureQuizSchema();
-
   const pool = getDbPool();
 
   const generatedVariant = await regenerateQuizVariantForStudent(userId);
   if (!generatedVariant) {
     return NextResponse.json(
-      { ok: false, message: "Unable to generate quiz questions" },
+      { ok: false, message: "Unable to regenerate quiz variant" },
       { status: 404 },
     );
   }
-
   const [variantRows] = await pool.query(
     `SELECT id, variant_key, generation_mode, ai_provider, ai_model, ai_raw_response, seed_payload, question_count, created_at
      FROM quiz_variants
@@ -81,7 +60,7 @@ export async function GET(request: NextRequest) {
   const variant = (variantRows as VariantRow[])[0] ?? null;
 
   const [rows] = await pool.query(
-    `SELECT id, quiz_variant_id, question_order, question_text, option_a, option_b, option_c, option_d, trait_a, trait_b, trait_c, trait_d, category, ai_generated
+    `SELECT id, question_text, option_a, option_b, option_c, option_d, trait_a, trait_b, trait_c, trait_d, category
      FROM quiz_questions
      WHERE quiz_variant_id = ?
      ORDER BY question_order ASC, id ASC`,
@@ -103,6 +82,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       ok: true,
+      message: "Quiz regenerated",
       quizVariant: variant
         ? {
             id: variant.id,

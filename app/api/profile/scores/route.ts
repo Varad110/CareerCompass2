@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getDbPool } from "@/lib/db";
+import { regenerateQuizVariantForStudent } from "@/lib/quiz-generation";
 import { getAuthenticatedUserId } from "@/lib/server-auth";
 import { broadcastUpdate } from "@/lib/sse-utils";
 
@@ -38,6 +39,12 @@ export async function POST(request: NextRequest) {
      ON DUPLICATE KEY UPDATE score = VALUES(score)`,
     [userId, subject, score],
   );
+
+  try {
+    await regenerateQuizVariantForStudent(userId);
+  } catch {
+    // Keep score update resilient if quiz regeneration fails.
+  }
 
   // Broadcast real-time update
   broadcastUpdate(userId, "score_added", { subject, score });
@@ -79,6 +86,12 @@ export async function DELETE(request: NextRequest) {
      WHERE id = ? AND student_id = ?`,
     [scoreId, userId],
   );
+
+  try {
+    await regenerateQuizVariantForStudent(userId);
+  } catch {
+    // Keep score delete resilient if quiz regeneration fails.
+  }
 
   // Broadcast real-time update
   broadcastUpdate(userId, "score_removed", { scoreId });

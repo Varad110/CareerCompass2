@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BookOpen, Lightbulb, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,12 @@ type CareerResult = {
   careerKey: string;
   title: string;
   match: number;
+  classicScore?: number;
+  hybridScore?: number;
+  scoreDelta?: number;
   description: string;
   traits: string[];
+  confidence?: number;
 };
 
 type TraitScore = {
@@ -25,20 +29,90 @@ type TraitScore = {
 
 type ResultsResponse = {
   ok: boolean;
+  algorithm?: "classic" | "hybrid";
   results: CareerResult[];
   traits: TraitScore[];
+  quizVariant?: {
+    id: number;
+    key: string;
+    generationMode: string;
+    questionCount: number;
+    createdAt: string;
+  } | null;
 };
+
+type CachedResultBundle = {
+  algorithm: "classic" | "hybrid";
+  results: CareerResult[];
+  traits: TraitScore[];
+  source: "server" | "offline";
+  createdAt: string;
+  quizVariant?: ResultsResponse["quizVariant"];
+};
+
+const QUIZ_RESULT_CACHE_KEY = "campuscompass.quiz.result";
+
+function getCacheKey(algorithm: "classic" | "hybrid"): string {
+  return `${QUIZ_RESULT_CACHE_KEY}.${algorithm}`;
+}
+
+function canUseBrowserStorage(): boolean {
+  return typeof window !== "undefined";
+}
+
+function loadCachedResults(
+  algorithm: "classic" | "hybrid",
+): CachedResultBundle | null {
+  if (!canUseBrowserStorage()) {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(getCacheKey(algorithm));
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as CachedResultBundle;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedResults(payload: CachedResultBundle): void {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(
+    getCacheKey(payload.algorithm),
+    JSON.stringify(payload),
+  );
+}
 
 export default function ResultsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedAlgorithm =
+    searchParams.get("algorithm")?.toLowerCase() === "hybrid"
+      ? "hybrid"
+      : "classic";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [careerResults, setCareerResults] = useState<CareerResult[]>([]);
   const [traitScores, setTraitScores] = useState<TraitScore[]>([]);
+  const [algorithmLabel, setAlgorithmLabel] = useState<"classic" | "hybrid">(
+    requestedAlgorithm,
+  );
+  const [quizVariant, setQuizVariant] =
+    useState<ResultsResponse["quizVariant"]>(null);
 
   const loadResults = async () => {
     try {
-      const response = await fetch("/api/results", { cache: "no-store" });
+      const response = await fetch(
+        `/api/results?algorithm=${requestedAlgorithm}`,
+        { cache: "no-store" },
+      );
       if (response.status === 401) {
         router.push("/login");
         return;
@@ -46,14 +120,46 @@ export default function ResultsPage() {
 
       const result = (await response.json()) as ResultsResponse;
       if (!response.ok || !result.ok) {
+        const cached = loadCachedResults(requestedAlgorithm);
+        if (cached?.results?.length) {
+          setCareerResults(cached.results);
+          setTraitScores(cached.traits);
+          setAlgorithmLabel(cached.algorithm);
+          setQuizVariant(cached.quizVariant ?? null);
+          setError("Loaded cached results because the network is unavailable.");
+          return;
+        }
+
         setError("Unable to load results right now.");
         return;
       }
 
       setCareerResults(result.results);
       setTraitScores(result.traits);
+      setAlgorithmLabel(result.algorithm ?? requestedAlgorithm);
+      setQuizVariant(result.quizVariant ?? null);
+      saveCachedResults({
+        algorithm: (result.algorithm ?? requestedAlgorithm) as
+          | "classic"
+          | "hybrid",
+        results: result.results,
+        traits: result.traits,
+        source: "server",
+        createdAt: new Date().toISOString(),
+        quizVariant: result.quizVariant ?? null,
+      });
       setError("");
     } catch {
+      const cached = loadCachedResults(requestedAlgorithm);
+      if (cached?.results?.length) {
+        setCareerResults(cached.results);
+        setTraitScores(cached.traits);
+        setAlgorithmLabel(cached.algorithm);
+        setQuizVariant(cached.quizVariant ?? null);
+        setError("Loaded cached results because the network is unavailable.");
+        return;
+      }
+
       setError("Network error while loading results.");
     } finally {
       setLoading(false);
@@ -80,10 +186,10 @@ export default function ResultsPage() {
       eventSource.removeEventListener("quiz_completed", handleQuizCompleted);
       eventSource.close();
     };
-  }, []);
+  }, [requestedAlgorithm]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
+    <div className="min-h-screen bg-linear-to-br from-background via-background to-secondary">
       <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center">
           <Link
@@ -105,6 +211,17 @@ export default function ResultsPage() {
             These recommendations update automatically from your latest profile
             and quiz data.
           </p>
+          <Badge variant="outline" className="w-fit capitalize">
+            Algorithm: {algorithmLabel}
+          </Badge>
+          {quizVariant ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="capitalize">
+                Quiz mode: {quizVariant.generationMode}
+              </Badge>
+              <Badge variant="outline">Variant #{quizVariant.id}</Badge>
+            </div>
+          ) : null}
         </div>
 
         {loading ? (
@@ -173,6 +290,17 @@ export default function ResultsPage() {
                     {career.description}
                   </p>
 
+                  {algorithmLabel === "hybrid" ? (
+                    <div className="mb-6 rounded-lg border border-border/40 bg-secondary/30 p-3 text-sm text-muted-foreground space-y-1">
+                      <p>
+                        Classic: {career.classicScore ?? "-"} | Hybrid:{" "}
+                        {career.hybridScore ?? "-"} | Delta:{" "}
+                        {career.scoreDelta ?? "-"}
+                      </p>
+                      <p>Confidence: {career.confidence ?? "-"}</p>
+                    </div>
+                  ) : null}
+
                   <div className="flex flex-wrap gap-2">
                     {career.traits.map((trait) => (
                       <Badge
@@ -188,7 +316,7 @@ export default function ResultsPage() {
               ))}
             </div>
 
-            <Card className="p-8 border-border/40 bg-gradient-to-r from-accent/10 to-primary/10 border-primary/20">
+            <Card className="p-8 border-border/40 bg-linear-to-r from-accent/10 to-primary/10">
               <div className="space-y-4">
                 <h3 className="text-lg font-bold text-foreground">
                   Next Steps

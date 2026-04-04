@@ -26,9 +26,28 @@ CREATE TABLE IF NOT EXISTS academic_scores (
   UNIQUE KEY unique_student_subject (student_id, subject)
 );
 
+-- Quiz Variants Table
+CREATE TABLE IF NOT EXISTS quiz_variants (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  student_id INT NOT NULL,
+  variant_key VARCHAR(120) NOT NULL UNIQUE,
+  generation_mode VARCHAR(20) NOT NULL DEFAULT 'ai' COMMENT 'ai or fallback',
+  ai_provider VARCHAR(30) NULL COMMENT 'google, grok, openai',
+  ai_model VARCHAR(120) NULL,
+  ai_raw_response LONGTEXT NULL COMMENT 'raw model JSON/text response',
+  seed_payload JSON NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active, archived',
+  question_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+);
+
 -- Quiz Questions Table (seeded once)
 CREATE TABLE IF NOT EXISTS quiz_questions (
   id INT PRIMARY KEY AUTO_INCREMENT,
+  quiz_variant_id INT NULL,
+  question_order INT NULL,
   question_text TEXT NOT NULL,
   option_a VARCHAR(255) NOT NULL,
   option_b VARCHAR(255) NOT NULL,
@@ -38,18 +57,23 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   trait_b VARCHAR(50) NOT NULL COMMENT 'Trait tag for option B',
   trait_c VARCHAR(50) NOT NULL COMMENT 'Trait tag for option C',
   trait_d VARCHAR(50) NOT NULL COMMENT 'Trait tag for option D',
-  category VARCHAR(50) NOT NULL COMMENT '"interest" / "aptitude" / "personality"'
+  category VARCHAR(50) NOT NULL COMMENT '"interest" / "aptitude" / "personality"',
+  ai_generated BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (quiz_variant_id) REFERENCES quiz_variants(id) ON DELETE CASCADE
 );
 
 -- Quiz Responses Table
 CREATE TABLE IF NOT EXISTS quiz_responses (
   id INT PRIMARY KEY AUTO_INCREMENT,
   student_id INT NOT NULL,
+  quiz_variant_id INT NULL,
   question_id INT NOT NULL,
   selected_option CHAR(1) NOT NULL COMMENT 'a, b, c, or d',
   trait_scored VARCHAR(50) NOT NULL COMMENT 'The trait earned by that answer',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+  FOREIGN KEY (quiz_variant_id) REFERENCES quiz_variants(id) ON DELETE SET NULL,
   FOREIGN KEY (question_id) REFERENCES quiz_questions(id) ON DELETE CASCADE
 );
 
@@ -126,10 +150,12 @@ CREATE TABLE IF NOT EXISTS user_interests (
 CREATE TABLE IF NOT EXISTS quiz_attempts (
   id INT PRIMARY KEY AUTO_INCREMENT,
   student_id INT NOT NULL,
+  quiz_variant_id INT NULL,
   attempt_number INT NOT NULL,
   total_score INT NOT NULL,
   completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+  FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+  FOREIGN KEY (quiz_variant_id) REFERENCES quiz_variants(id) ON DELETE SET NULL
 );
 
 -- Learning Roadmap Table
@@ -198,13 +224,17 @@ CREATE TABLE IF NOT EXISTS progress_tracking (
 CREATE INDEX idx_student_email ON students(email);
 CREATE INDEX idx_academic_student ON academic_scores(student_id);
 CREATE INDEX idx_quiz_response_student ON quiz_responses(student_id);
+CREATE INDEX idx_quiz_response_variant ON quiz_responses(quiz_variant_id);
 CREATE INDEX idx_trait_score_student ON trait_scores(student_id);
 CREATE INDEX idx_results_student ON results(student_id);
 CREATE INDEX idx_results_rank ON results(student_id, rank_position);
+CREATE INDEX idx_quiz_variant_student ON quiz_variants(student_id, status, created_at);
+CREATE INDEX idx_quiz_questions_variant ON quiz_questions(quiz_variant_id, question_order, id);
 CREATE INDEX idx_resources_career ON resources(career_key);
 CREATE INDEX idx_user_skills_student ON user_skills(student_id);
 CREATE INDEX idx_user_interests_student ON user_interests(student_id);
 CREATE INDEX idx_quiz_attempts_student ON quiz_attempts(student_id);
+CREATE INDEX idx_quiz_attempts_variant ON quiz_attempts(quiz_variant_id);
 CREATE INDEX idx_roadmap_student ON learning_roadmaps(student_id);
 CREATE INDEX idx_milestones_roadmap ON roadmap_milestones(roadmap_id);
 CREATE INDEX idx_skill_gaps_student ON skill_gaps(student_id);

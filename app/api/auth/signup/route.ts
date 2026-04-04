@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME, createAuthToken, hashPassword } from "@/lib/auth";
 import { getDbPool } from "@/lib/db";
+import { createAndStoreQuizVariant } from "@/lib/quiz-generation";
+import { ensureQuizSchema } from "@/lib/quiz-schema";
 
 type SignupRequestBody = {
   name?: string;
@@ -117,6 +119,20 @@ export async function POST(request: NextRequest) {
     }
 
     await connection.commit();
+
+    try {
+      await ensureQuizSchema();
+      await createAndStoreQuizVariant({
+        studentId,
+        name,
+        grade,
+        stream,
+        skills,
+        interests,
+      });
+    } catch {
+      // Keep account creation resilient if quiz generation or persistence fails.
+    }
 
     const token = createAuthToken({
       userId: studentId,
