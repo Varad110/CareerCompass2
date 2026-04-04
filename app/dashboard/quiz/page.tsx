@@ -136,7 +136,7 @@ export default function QuizPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary p-8 text-muted-foreground">
+      <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100 p-8 text-slate-600">
         Loading quiz...
       </div>
     );
@@ -144,25 +144,25 @@ export default function QuizPage() {
 
   if (completed) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
+      <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100">
         <div className="max-w-2xl mx-auto px-4 py-20 flex items-center justify-center min-h-[calc(100vh-64px)]">
-          <Card className="p-8 sm:p-12 border-border/40 text-center space-y-6 w-full">
+          <Card className="w-full space-y-6 border border-slate-200/70 bg-white/90 p-8 text-center shadow-lg sm:p-12">
             <div className="flex justify-center">
               <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
                 <CheckCircle2 className="w-10 h-10 text-green-500" />
               </div>
             </div>
             <div className="space-y-3">
-              <h2 className="text-3xl font-bold text-foreground">
+              <h2 className="text-3xl font-bold text-slate-900">
                 Quiz Completed
               </h2>
-              <p className="text-muted-foreground">
+              <p className="text-slate-600">
                 Your quiz responses were saved and your recommendations were
                 recalculated.
               </p>
             </div>
             <Link href="/dashboard/results" className="block">
-              <Button className="w-full bg-primary hover:bg-primary/90">
+              <Button className="w-full bg-linear-to-r from-blue-700 to-cyan-500 text-white hover:opacity-95">
                 View Your Results
               </Button>
             </Link>
@@ -174,7 +174,7 @@ export default function QuizPage() {
 
   if (!questions.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary p-8 text-muted-foreground">
+      <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100 p-8 text-slate-600">
         No quiz questions found.
       </div>
     );
@@ -185,23 +185,23 @@ export default function QuizPage() {
   const allAnswered = Object.keys(answers).length === questions.length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
-      <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-md">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100">
+      <nav className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/75 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-2 text-slate-600 transition hover:text-slate-900"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back</span>
           </Link>
           <div className="flex items-center gap-2">
-            <Compass className="w-5 h-5 text-primary" />
-            <span className="font-medium text-foreground">
+            <Compass className="w-5 h-5 text-blue-700" />
+            <span className="font-semibold text-slate-900">
               Career Assessment
             </span>
           </div>
-          <p className="text-muted-foreground text-sm">
+          <p className="text-sm text-slate-600">
             Question {currentQuestion + 1} of {questions.length}
           </p>
         </div>
@@ -214,39 +214,39 @@ export default function QuizPage() {
 
         <div className="mb-8">
           <div className="flex justify-between items-center mb-2">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
               Progress
             </h2>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-slate-600">
               {Math.round(progress)}%
             </span>
           </div>
-          <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
             <div
-              className="h-full bg-primary rounded-full"
+              className="h-full rounded-full bg-linear-to-r from-blue-700 to-cyan-500"
               style={{ width: `${progress}%` }}
             />
           </div>
         </div>
 
-        <Card className="p-8 border-border/40 space-y-8 mb-8">
+        <Card className="mb-8 space-y-8 border border-slate-200/70 bg-white/90 p-8 shadow-lg">
           <div className="flex justify-between items-start">
             <Badge
               variant="outline"
-              className="bg-primary/10 text-primary border-primary/20 capitalize"
+              className="border-blue-200 bg-blue-50 text-blue-700 capitalize"
             >
               {question.category}
             </Badge>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-slate-600">
               Step {currentQuestion + 1}
             </span>
           </div>
 
           <div>
-            <h3 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight">
+            <h3 className="text-2xl sm:text-3xl font-bold leading-tight text-slate-900">
               {question.question}
             </h3>
-            <p className="text-muted-foreground mt-2">
+            <p className="mt-2 text-slate-600">
               Select the option that best describes you
             </p>
           </div>
@@ -258,12 +258,12 @@ export default function QuizPage() {
                 onClick={() => handleAnswerSelect(option.id)}
                 className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
                   answers[question.id] === option.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border/40 bg-secondary/30 hover:border-primary/50"
+                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                    : "border-slate-200 bg-white hover:border-blue-300 hover:bg-slate-50"
                 }`}
               >
-                <p className="font-medium text-foreground">{option.text}</p>
-                <p className="text-xs text-muted-foreground mt-1 capitalize">
+                <p className="font-medium text-slate-900">{option.text}</p>
+                <p className="mt-1 text-xs capitalize text-slate-500">
                   Trait: {option.trait}
                 </p>
               </button>
@@ -276,7 +276,7 @@ export default function QuizPage() {
             onClick={() => setCurrentQuestion((prev) => Math.max(0, prev - 1))}
             disabled={currentQuestion === 0}
             variant="outline"
-            className="border-border/40"
+            className="border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Previous
@@ -286,7 +286,7 @@ export default function QuizPage() {
             <Button
               onClick={() => setCurrentQuestion((prev) => prev + 1)}
               disabled={!isAnswered}
-              className="bg-primary hover:bg-primary/90"
+              className="bg-linear-to-r from-blue-700 to-cyan-500 text-white hover:opacity-95"
             >
               Next
               <ArrowRight className="w-4 h-4 ml-2" />
@@ -295,7 +295,7 @@ export default function QuizPage() {
             <Button
               onClick={handleSubmit}
               disabled={!allAnswered || submitting}
-              className="bg-primary hover:bg-primary/90"
+              className="bg-linear-to-r from-blue-700 to-cyan-500 text-white hover:opacity-95"
             >
               {submitting ? "Submitting..." : "Submit Quiz"}
               <CheckCircle2 className="w-4 h-4 ml-2" />
