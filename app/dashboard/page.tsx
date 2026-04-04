@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ type DashboardPayload = {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -88,24 +89,15 @@ export default function DashboardPage() {
       void loadDashboard();
     }, 15000);
 
-    // Connect to SSE for real-time dashboard updates
     const eventSource = new EventSource("/api/events");
 
-    const handleQuizCompleted = () => {
-      void loadDashboard();
-    };
+    const refresh = () => void loadDashboard();
 
-    const handleProfileUpdate = () => {
-      void loadDashboard();
-    };
-
-    eventSource.addEventListener("quiz_completed", handleQuizCompleted);
-    eventSource.addEventListener("profile_updated", handleProfileUpdate);
+    eventSource.addEventListener("quiz_completed", refresh);
+    eventSource.addEventListener("profile_updated", refresh);
 
     return () => {
       clearInterval(interval);
-      eventSource.removeEventListener("quiz_completed", handleQuizCompleted);
-      eventSource.removeEventListener("profile_updated", handleProfileUpdate);
       eventSource.close();
     };
   }, []);
@@ -134,235 +126,170 @@ export default function DashboardPage() {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
-      <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-blue-50 to-indigo-100">
+      
+      {/* NAVBAR */}
+      <nav className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/75 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 hover:bg-secondary rounded-lg transition-colors"
-            >
-              {sidebarOpen ? (
-                <X className="w-6 h-6" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden rounded-lg p-2 text-slate-700 hover:bg-slate-100">
+              {sidebarOpen ? <X /> : <Menu />}
             </button>
+
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-                <Compass className="w-6 h-6 text-primary-foreground" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-linear-to-br from-slate-800 to-blue-700 shadow-md">
+                <Compass className="text-white" />
               </div>
-              <span className="font-bold text-lg text-foreground hidden sm:block">
-                Career Compass
-              </span>
+              <span className="hidden text-lg font-bold tracking-tight text-slate-900 sm:block">Career Compass</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-foreground">
-                {data?.profile.name ?? "Loading..."}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {data?.profile.stream ?? "-"} Stream
-              </p>
+          {/* USER */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-r from-blue-700 to-cyan-500 text-sm font-bold text-white shadow-sm">
+              {data?.profile.name?.charAt(0) ?? "U"}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <LogOut className="w-5 h-5" />
+
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-semibold text-slate-900">{data?.profile.name}</p>
+              <p className="text-xs text-slate-500">{data?.profile.stream} Stream</p>
+            </div>
+
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-slate-600 hover:bg-slate-100 hover:text-slate-900">
+              <LogOut />
             </Button>
           </div>
         </div>
       </nav>
 
       <div className="flex">
+        
+        {/* SIDEBAR */}
         {sidebarOpen && (
-          <aside className="w-64 border-r border-border/40 bg-secondary/50 p-6 space-y-6 lg:block hidden">
-            <div className="space-y-4">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Navigation
-              </h3>
-              <nav className="space-y-2">
-                {[
-                  { icon: Compass, label: "Dashboard", href: "/dashboard" },
-                  { icon: Award, label: "Profile", href: "/dashboard/profile" },
-                  { icon: TrendingUp, label: "Quiz", href: "/dashboard/quiz" },
-                  {
-                    icon: BookOpen,
-                    label: "Resources",
-                    href: "/dashboard/resources",
-                  },
-                ].map((item) => (
-                  <Link key={item.label} href={item.href}>
-                    <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-left text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors">
-                      <item.icon className="w-5 h-5" />
-                      <span className="text-sm font-medium">{item.label}</span>
-                    </button>
-                  </Link>
-                ))}
-              </nav>
-            </div>
-
-            <div className="space-y-4 pt-6 border-t border-border/40">
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-left text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium"
-              >
-                Logout
-              </button>
-            </div>
+          <aside className="hidden w-64 space-y-4 border-r border-slate-700/60 bg-linear-to-b from-slate-900 to-slate-800 p-6 text-slate-100 shadow-xl backdrop-blur-xl lg:block">
+            {[
+              { icon: Compass, label: "Dashboard", href: "/dashboard" },
+              { icon: Award, label: "Profile", href: "/dashboard/profile" },
+              { icon: TrendingUp, label: "Quiz", href: "/dashboard/quiz" },
+              { icon: BookOpen, label: "Resources", href: "/dashboard/resources" },
+            ].map((item) => (
+              <Link key={item.label} href={item.href}>
+                <div
+                  className={`flex items-center gap-3 rounded-lg p-3 transition ${
+                    pathname === item.href
+                      ? "bg-blue-500/20 text-white ring-1 ring-blue-300/40"
+                      : "text-slate-200 hover:scale-[1.02] hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <item.icon
+                    className={
+                      pathname === item.href ? "text-cyan-300" : "text-slate-300"
+                    }
+                  />
+                  {item.label}
+                </div>
+              </Link>
+            ))}
           </aside>
         )}
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-8">
-          <div className="space-y-2">
-            <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
-              Welcome back, {data?.profile.name ?? "Student"}!
-            </h1>
-            <p className="text-muted-foreground">
-              Your dashboard now updates from live database data.
-            </p>
+        {/* MAIN */}
+        <main className="flex-1 p-6 space-y-8">
+
+          {/* HEADER */}
+          <div>
+            <h1 className="text-4xl font-bold tracking-tight text-slate-900">Welcome back, {data?.profile.name} 👋</h1>
+            <p className="text-slate-600">AI-powered career insights</p>
           </div>
 
-          {loading ? (
-            <p className="text-muted-foreground">Loading dashboard...</p>
-          ) : null}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
+          {/* STATS */}
           <div className="grid sm:grid-cols-4 gap-4">
-            {stats.map((stat) => (
-              <Card key={stat.label} className="p-6 border-border/40">
-                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">
-                  {stat.label}
-                </p>
-                <p className="text-3xl font-bold text-foreground mt-2">
-                  {stat.value}
-                </p>
+            {stats.map((stat, index) => {
+              const icons = [Target, BookOpen, TrendingUp, Award];
+              const Icon = icons[index];
+
+              return (
+                <Card key={stat.label} className="rounded-2xl border border-slate-200/70 bg-white/85 p-6 transition hover:-translate-y-1 hover:shadow-lg">
+                  <div className="flex justify-between">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</p>
+                      <p className="text-3xl font-bold text-slate-900">{stat.value}</p>
+                    </div>
+                    <Icon className="text-blue-700" />
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* CAREERS */}
+          <div>
+            <h2 className="mb-4 text-3xl font-bold tracking-tight text-slate-900">Top Career Matches</h2>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              {data?.matches.map((career) => (
+                <Card key={career.rank} className="rounded-2xl border border-slate-200/70 bg-white/85 p-6 transition hover:-translate-y-1 hover:shadow-lg">
+
+                  <div className="flex justify-between">
+                    <div className={`w-10 h-10 ${career.color} text-white flex items-center justify-center rounded`}>
+                      {career.rank}
+                    </div>
+                    <Badge className="bg-linear-to-r from-blue-700 to-cyan-500 text-white shadow-sm">
+                      Top Match
+                    </Badge>
+                  </div>
+
+                  <h3 className="mt-3 text-lg font-semibold text-slate-900">{career.title}</h3>
+
+                  <div className="mt-4">
+                    <div className="h-3 rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-linear-to-r from-blue-700 to-cyan-500"
+                        style={{ width: `${career.match}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-slate-600">{career.match}% match</p>
+                  </div>
+
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* ACTIVITY */}
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Recent Activity</h2>
+
+            {data?.recentActivity.map((a, i) => (
+              <Card key={i} className="mt-3 flex justify-between border border-slate-200/70 bg-white/85 p-4 transition hover:shadow-md">
+                <div className="flex gap-3">
+                  <Check className="text-emerald-600" />
+                  <div>
+                    <p className="text-slate-900">{a.action}</p>
+                    <p className="text-sm text-slate-500">{a.date}</p>
+                  </div>
+                </div>
+                <Badge className="border border-slate-200 bg-slate-100 text-slate-700">{a.status}</Badge>
               </Card>
             ))}
           </div>
 
-          <div className="space-y-6">
+          {/* CTA */}
+          <div className="flex justify-between rounded-xl bg-linear-to-r from-slate-900 via-blue-900 to-cyan-700 p-8 text-white shadow-xl">
             <div>
-              <h2 className="text-3xl font-bold text-foreground mb-2">
-                Your Top Career Matches
-              </h2>
-              <p className="text-muted-foreground">
-                Generated from your current profile and quiz activity.
-              </p>
+              <h3 className="text-xl font-bold">Improve your results</h3>
+              <p className="text-sm text-blue-100">Take quiz to get better matches</p>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
-              {(data?.matches ?? []).map((career) => (
-                <Card
-                  key={career.rank}
-                  className="p-6 border-border/40 hover:border-primary/50 hover:shadow-lg transition-all"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div
-                        className={`w-10 h-10 rounded-lg ${career.color} flex items-center justify-center text-white font-bold`}
-                      >
-                        {career.rank}
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="bg-primary/10 text-primary border-primary/20"
-                      >
-                        Top Match
-                      </Badge>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-semibold text-foreground">
-                        {career.title}
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Live recommendation
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${career.color}`}
-                          style={{ width: `${career.match}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground text-center">
-                        {career.match}% compatibility
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-
-            <Link href="/dashboard/results" className="block">
-              <Button className="w-full bg-gradient-to-r from-primary to-secondary hover:shadow-lg transition font-semibold">
-                View All Details & Insights
-                <ArrowRight className="w-4 h-4 ml-2" />
+            <Link href="/dashboard/quiz">
+              <Button className="bg-white text-slate-900 transition hover:scale-105 hover:bg-blue-50">
+                <Zap className="mr-2" />
+                Start Quiz
               </Button>
             </Link>
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-foreground">
-              Recent Activity
-            </h2>
-            <div className="space-y-3">
-              {(data?.recentActivity ?? []).map((activity, i) => (
-                <Card
-                  key={`${activity.action}-${i}`}
-                  className="p-4 border-border/40 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                      <Check className="w-5 h-5 text-green-500" />
-                    </div>
-                    <div>
-                      <p className="text-foreground font-medium">
-                        {activity.action}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {activity.date}
-                      </p>
-                    </div>
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className="bg-green-500/10 text-green-700 border-0"
-                  >
-                    {activity.status}
-                  </Badge>
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-primary/10 via-secondary/5 to-accent/10 border border-primary/20 rounded-xl p-8">
-            <div className="flex items-center justify-between gap-8">
-              <div className="space-y-3 flex-1">
-                <h3 className="text-2xl font-bold text-foreground">
-                  Refine Your Recommendations
-                </h3>
-                <p className="text-muted-foreground">
-                  Take or retake the quiz to instantly update your career
-                  matches.
-                </p>
-              </div>
-              <Link href="/dashboard/quiz" className="shrink-0">
-                <Button className="bg-gradient-to-r from-primary to-secondary hover:shadow-lg transition whitespace-nowrap">
-                  <Zap className="w-4 h-4 mr-2" />
-                  Start Quiz
-                </Button>
-              </Link>
-            </div>
-          </div>
         </main>
       </div>
     </div>
