@@ -81,7 +81,7 @@ export default function LoginPage() {
           {/* Form */}
           <form onSubmit={handleLogin} className="space-y-6">
             {error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <div className="rounded-md border px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
             )}
@@ -97,7 +97,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="bg-secondary border-border/50 focus:border-primary"
+                className="bg-light border-border/50 focus:border-primary"
                 required
               />
             </div>
@@ -113,7 +113,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="bg-secondary border-border/50 focus:border-primary"
+                className="bg-light border-border/50 focus:border-primary"
                 required
               />
             </div>

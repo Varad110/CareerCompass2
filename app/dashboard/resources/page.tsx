@@ -151,7 +151,7 @@ export default function ResourcesPage() {
                 placeholder="Search resources by name or topic..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-secondary border-border/50 focus:border-primary"
+                className="pl-10 bg-light border-border/50 focus:border-primary"
               />
             </div>
 
@@ -171,7 +171,7 @@ export default function ResourcesPage() {
                     <button
                       key={career}
                       onClick={() => setSelectedCareer(career)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium ${selectedCareer === career ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium ${selectedCareer === career ? "bg-primary text-white" : "bg-secondary text-white"}`}
                     >
                       {career}
                     </button>
@@ -194,7 +194,7 @@ export default function ResourcesPage() {
                     <button
                       key={type}
                       onClick={() => setSelectedType(type)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium capitalize ${selectedType === type ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium capitalize ${selectedType === type ? "bg-primary text-white" : "bg-secondary text-white"}`}
                     >
                       {type}
                     </button>
