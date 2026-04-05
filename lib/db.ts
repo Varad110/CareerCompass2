@@ -3,6 +3,7 @@ import mysql, { Pool } from "mysql2/promise";
 declare global {
   // Reuse the pool across hot reloads in development.
   var __campusCompassDbPool: Pool | undefined;
+  var __campusCompassDbUrl: string | undefined;
 }
 
 function getDatabaseUrl(): string {
@@ -18,8 +19,23 @@ function getDatabaseUrl(): string {
 }
 
 export function getDbPool(): Pool {
+  const dbUrl = getDatabaseUrl();
+
+  if (
+    global.__campusCompassDbPool &&
+    global.__campusCompassDbUrl &&
+    global.__campusCompassDbUrl !== dbUrl
+  ) {
+    // Recreate the pool when DATABASE_URL changes during development.
+    void global.__campusCompassDbPool.end().catch(() => {
+      // Ignore shutdown errors and continue with a fresh pool.
+    });
+    global.__campusCompassDbPool = undefined;
+  }
+
   if (!global.__campusCompassDbPool) {
-    global.__campusCompassDbPool = mysql.createPool(getDatabaseUrl());
+    global.__campusCompassDbPool = mysql.createPool(dbUrl);
+    global.__campusCompassDbUrl = dbUrl;
   }
 
   return global.__campusCompassDbPool;

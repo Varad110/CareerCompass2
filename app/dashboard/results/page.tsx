@@ -16,11 +16,40 @@ type CareerResult = {
   match: number;
   classicScore?: number;
   hybridScore?: number;
+  adaptiveScore?: number;
   scoreDelta?: number;
   description: string;
   traits: string[];
+  adaptiveDetails?: {
+    weights: {
+      academic: number;
+      traits: number;
+      skills: number;
+      interests: number;
+      demand: number;
+    };
+    penalties: {
+      skill: number;
+      interest: number;
+      academics: number;
+      traits: number;
+      consistency: number;
+    };
+    bonuses: {
+      consistency: number;
+      skillInterest: number;
+      academicSkill: number;
+    };
+    calibration: {
+      cohortShift: number;
+      cohortSampleCount: number;
+      attemptReliability: number;
+    };
+  };
   confidence?: number;
 };
+
+type AlgorithmMode = "classic" | "hybrid" | "adaptive";
 
 type TraitScore = {
   trait: string;
@@ -29,7 +58,7 @@ type TraitScore = {
 
 type ResultsResponse = {
   ok: boolean;
-  algorithm?: "classic" | "hybrid";
+  algorithm?: AlgorithmMode;
   results: CareerResult[];
   traits: TraitScore[];
   quizVariant?: {
@@ -42,7 +71,7 @@ type ResultsResponse = {
 };
 
 type CachedResultBundle = {
-  algorithm: "classic" | "hybrid";
+  algorithm: AlgorithmMode;
   results: CareerResult[];
   traits: TraitScore[];
   source: "server" | "offline";
@@ -52,7 +81,7 @@ type CachedResultBundle = {
 
 const QUIZ_RESULT_CACHE_KEY = "campuscompass.quiz.result";
 
-function getCacheKey(algorithm: "classic" | "hybrid"): string {
+function getCacheKey(algorithm: AlgorithmMode): string {
   return `${QUIZ_RESULT_CACHE_KEY}.${algorithm}`;
 }
 
@@ -61,7 +90,7 @@ function canUseBrowserStorage(): boolean {
 }
 
 function loadCachedResults(
-  algorithm: "classic" | "hybrid",
+  algorithm: AlgorithmMode,
 ): CachedResultBundle | null {
   if (!canUseBrowserStorage()) {
     return null;
@@ -93,17 +122,19 @@ function saveCachedResults(payload: CachedResultBundle): void {
 function ResultsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const requestedAlgorithm =
-    searchParams.get("algorithm")?.toLowerCase() === "hybrid"
+  const requestedAlgorithmParam = searchParams.get("algorithm")?.toLowerCase();
+  const requestedAlgorithm: AlgorithmMode =
+    requestedAlgorithmParam === "hybrid"
       ? "hybrid"
-      : "classic";
+      : requestedAlgorithmParam === "adaptive"
+        ? "adaptive"
+        : "classic";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [careerResults, setCareerResults] = useState<CareerResult[]>([]);
   const [traitScores, setTraitScores] = useState<TraitScore[]>([]);
-  const [algorithmLabel, setAlgorithmLabel] = useState<"classic" | "hybrid">(
-    requestedAlgorithm,
-  );
+  const [algorithmLabel, setAlgorithmLabel] =
+    useState<AlgorithmMode>(requestedAlgorithm);
   const [quizVariant, setQuizVariant] =
     useState<ResultsResponse["quizVariant"]>(null);
 
@@ -139,9 +170,7 @@ function ResultsPageContent() {
       setAlgorithmLabel(result.algorithm ?? requestedAlgorithm);
       setQuizVariant(result.quizVariant ?? null);
       saveCachedResults({
-        algorithm: (result.algorithm ?? requestedAlgorithm) as
-          | "classic"
-          | "hybrid",
+        algorithm: (result.algorithm ?? requestedAlgorithm) as AlgorithmMode,
         results: result.results,
         traits: result.traits,
         source: "server",
@@ -219,6 +248,32 @@ function ResultsPageContent() {
           <Badge variant="outline" className="w-fit capitalize">
             Algorithm: {algorithmLabel}
           </Badge>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/results?algorithm=classic">
+              <Button
+                size="sm"
+                variant={algorithmLabel === "classic" ? "default" : "outline"}
+              >
+                Classic
+              </Button>
+            </Link>
+            <Link href="/dashboard/results?algorithm=hybrid">
+              <Button
+                size="sm"
+                variant={algorithmLabel === "hybrid" ? "default" : "outline"}
+              >
+                Hybrid
+              </Button>
+            </Link>
+            <Link href="/dashboard/results?algorithm=adaptive">
+              <Button
+                size="sm"
+                variant={algorithmLabel === "adaptive" ? "default" : "outline"}
+              >
+                Adaptive
+              </Button>
+            </Link>
+          </div>
           {quizVariant ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary" className="capitalize">
@@ -304,6 +359,74 @@ function ResultsPageContent() {
                         {career.scoreDelta ?? "-"}
                       </p>
                       <p>Confidence: {career.confidence ?? "-"}</p>
+                    </div>
+                  ) : null}
+
+                  {algorithmLabel === "adaptive" ? (
+                    <div className="mb-6 rounded-lg border border-border/40 bg-secondary/30 p-3 text-sm text-muted-foreground space-y-1">
+                      <p>
+                        Classic: {career.classicScore ?? "-"} | Hybrid Baseline:{" "}
+                        {career.hybridScore ?? "-"} | Adaptive:{" "}
+                        {career.adaptiveScore ?? "-"}
+                      </p>
+                      <p>
+                        Delta vs Hybrid: {career.scoreDelta ?? "-"} |
+                        Confidence: {career.confidence ?? "-"}
+                      </p>
+
+                      {career.adaptiveDetails ? (
+                        <div className="mt-2 rounded-md border border-border/50 bg-background/80 p-3 space-y-2 text-xs">
+                          <p className="font-semibold text-foreground">
+                            Why this score
+                          </p>
+                          <p>
+                            Weights (A/T/S/I/D):{" "}
+                            {career.adaptiveDetails.weights.academic}% /{" "}
+                            {career.adaptiveDetails.weights.traits}% /{" "}
+                            {career.adaptiveDetails.weights.skills}% /{" "}
+                            {career.adaptiveDetails.weights.interests}% /{" "}
+                            {career.adaptiveDetails.weights.demand}%
+                          </p>
+                          <p>
+                            Bonuses: consistency +
+                            {career.adaptiveDetails.bonuses.consistency},
+                            skill-interest +
+                            {career.adaptiveDetails.bonuses.skillInterest},
+                            academic-skill +
+                            {career.adaptiveDetails.bonuses.academicSkill}
+                          </p>
+                          <p>
+                            Penalties: skill -
+                            {career.adaptiveDetails.penalties.skill}, interest -
+                            {career.adaptiveDetails.penalties.interest},
+                            academics -
+                            {career.adaptiveDetails.penalties.academics}, traits
+                            -{career.adaptiveDetails.penalties.traits},
+                            consistency -
+                            {career.adaptiveDetails.penalties.consistency}
+                          </p>
+                          <p>
+                            Calibration: cohort shift{" "}
+                            {career.adaptiveDetails.calibration.cohortShift >= 0
+                              ? "+"
+                              : ""}
+                            {career.adaptiveDetails.calibration.cohortShift.toFixed(
+                              1,
+                            )}
+                            , cohort samples{" "}
+                            {
+                              career.adaptiveDetails.calibration
+                                .cohortSampleCount
+                            }
+                            , reliability{" "}
+                            {
+                              career.adaptiveDetails.calibration
+                                .attemptReliability
+                            }
+                            %
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 

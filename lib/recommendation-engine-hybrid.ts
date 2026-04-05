@@ -84,12 +84,103 @@ const CAREER_DEMAND_SCORE: Record<string, number> = {
   business_analyst: 80,
 };
 
+const KEYWORD_SYNONYMS: Record<string, string[]> = {
+  javascript: ["js"],
+  typescript: ["ts"],
+  "machine learning": ["ml"],
+  "artificial intelligence": ["ai"],
+  ui: ["user interface"],
+  ux: ["user experience"],
+  sql: ["structured query language"],
+  cybersecurity: ["cyber security", "cybersec"],
+  programming: ["coding", "development"],
+  analytics: ["analysis"],
+};
+
+const SYNONYM_TO_CANONICAL = Object.entries(KEYWORD_SYNONYMS).reduce(
+  (accumulator, [canonical, aliases]) => {
+    aliases.forEach((alias) => {
+      accumulator[alias] = canonical;
+    });
+    return accumulator;
+  },
+  {} as Record<string, string>,
+);
+
 function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(100, value));
+}
+
+function applyScoreFloor(
+  score: number,
+  academic: number,
+  traits: number,
+  skills: number,
+  interests: number,
+): number {
+  const coreFit =
+    academic * 0.35 + traits * 0.3 + skills * 0.2 + interests * 0.15;
+
+  if (coreFit >= 65 && score < 50) {
+    return 50;
+  }
+
+  if (coreFit >= 58 && score < 45) {
+    return 45;
+  }
+
+  return score;
+}
+
+function keywordVariants(keyword: string): string[] {
+  const normalized = normalizeValue(keyword);
+  const canonical = SYNONYM_TO_CANONICAL[normalized] ?? normalized;
+  const aliases = KEYWORD_SYNONYMS[canonical] ?? [];
+
+  return [canonical, ...aliases].map((entry) => normalizeValue(entry));
+}
+
+function hasKeywordMatch(value: string, keyword: string): boolean {
+  const normalizedValue = normalizeValue(value);
+  const variants = keywordVariants(keyword);
+
+  return variants.some((variant) => normalizedValue.includes(variant));
+}
+
+function normalizeWeights(
+  weights: Record<
+    "academic" | "traits" | "skills" | "interests" | "demand",
+    number
+  >,
+): Record<"academic" | "traits" | "skills" | "interests" | "demand", number> {
+  const total =
+    weights.academic +
+    weights.traits +
+    weights.skills +
+    weights.interests +
+    weights.demand;
+
+  if (total <= 0) {
+    return {
+      academic: 0.5,
+      traits: 0.5,
+      skills: 0,
+      interests: 0,
+      demand: 0,
+    };
+  }
+
+  return {
+    academic: weights.academic / total,
+    traits: weights.traits / total,
+    skills: weights.skills / total,
+    interests: weights.interests / total,
+    demand: weights.demand / total,
+  };
 }
 
 function keywordMatchScore(
@@ -101,7 +192,7 @@ function keywordMatchScore(
   }
 
   const matched = targetKeywords.filter((keyword) =>
-    sourceValues.some((value) => value.includes(keyword)),
+    sourceValues.some((value) => hasKeywordMatch(value, keyword)),
   ).length;
 
   return clampScore(Math.round((matched / targetKeywords.length) * 100));
@@ -116,7 +207,7 @@ function missingKeywordRatio(
   }
 
   const matched = targetKeywords.filter((keyword) =>
-    sourceValues.some((value) => value.includes(keyword)),
+    sourceValues.some((value) => hasKeywordMatch(value, keyword)),
   ).length;
 
   return (targetKeywords.length - matched) / targetKeywords.length;
@@ -226,30 +317,46 @@ export async function computeHybridResults(
         Math.round(academicScore * 0.6 + traitScore * 0.4),
       );
 
+      const tunedWeights = normalizeWeights({
+        academic: hasAcademic ? 0.31 : 0,
+        traits: hasTraits ? 0.31 : 0,
+        skills: hasSkills ? 0.22 : 0,
+        interests: hasInterests ? 0.11 : 0,
+        demand: 0.05,
+      });
+
       const missingSkillPenalty = hasSkills
-        ? Math.round(missingKeywordRatio(normalizedSkills, requiredSkills) * 18)
+        ? Math.round(missingKeywordRatio(normalizedSkills, requiredSkills) * 13)
         : 0;
       const missingInterestPenalty = hasInterests
         ? Math.round(
-            missingKeywordRatio(normalizedInterests, requiredInterests) * 8,
+            missingKeywordRatio(normalizedInterests, requiredInterests) * 6,
           )
         : 0;
 
       const strongSkillBonus = skillScore >= 80 ? 5 : 0;
       const strongInterestBonus = interestScore >= 80 ? 3 : 0;
 
-      const finalScore = clampScore(
+      const rawScore = clampScore(
         Math.round(
-          academicScore * 0.25 +
-            traitScore * 0.25 +
-            skillScore * 0.25 +
-            interestScore * 0.2 +
-            demandScore * 0.05 -
+          academicScore * tunedWeights.academic +
+            traitScore * tunedWeights.traits +
+            skillScore * tunedWeights.skills +
+            interestScore * tunedWeights.interests +
+            demandScore * tunedWeights.demand -
             missingSkillPenalty -
             missingInterestPenalty +
             strongSkillBonus +
             strongInterestBonus,
         ),
+      );
+
+      const finalScore = applyScoreFloor(
+        rawScore,
+        academicScore,
+        traitScore,
+        skillScore,
+        interestScore,
       );
 
       const scoreDelta = finalScore - classicScore;
