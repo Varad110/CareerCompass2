@@ -1,6 +1,6 @@
 # Campus Compass
 
-A Next.js app for campus-level quizzes, recommendations, and user dashboards.
+Campus Compass helps students identify strengths and career pathways by combining dynamic quiz generation with adaptive, hybrid, and predictive recommendation engines. It delivers personalized learning and career recommendations, evaluates results through a secure pipeline, and provides student and admin dashboards plus curated resources and realtime updates.
 
 ## Features
 
