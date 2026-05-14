@@ -17,9 +17,19 @@ type CareerResult = {
   classicScore?: number;
   hybridScore?: number;
   adaptiveScore?: number;
+  predictedProbability?: number;
   scoreDelta?: number;
   description: string;
   traits: string[];
+  predictiveDetails?: {
+    model: "knn-bayes-ensemble";
+    trainingSamples: number;
+    neighborsUsed: number;
+    neighborAgreement: number;
+    priorProbability: number;
+    knnProbability: number;
+    ensembleProbability: number;
+  };
   adaptiveDetails?: {
     weights: {
       academic: number;
@@ -50,6 +60,7 @@ type CareerResult = {
 };
 
 type AlgorithmMode = "classic" | "hybrid" | "adaptive";
+type ExtendedAlgorithmMode = AlgorithmMode | "predictive";
 
 type TraitScore = {
   trait: string;
@@ -58,7 +69,7 @@ type TraitScore = {
 
 type ResultsResponse = {
   ok: boolean;
-  algorithm?: AlgorithmMode;
+  algorithm?: ExtendedAlgorithmMode;
   results: CareerResult[];
   traits: TraitScore[];
   quizVariant?: {
@@ -70,8 +81,38 @@ type ResultsResponse = {
   } | null;
 };
 
+type PredictiveEvaluation = {
+  model: "knn-bayes-ensemble";
+  validation: "leave-one-out";
+  sampleCount: number;
+  classCount: number;
+  accuracy: number;
+  macroPrecision: number;
+  macroRecall: number;
+  macroF1: number;
+  baselineMajorityAccuracy: number;
+  confusionMatrix: Array<{
+    actual: string;
+    predicted: string;
+    count: number;
+  }>;
+  perCareer: Array<{
+    careerKey: string;
+    support: number;
+    precision: number;
+    recall: number;
+    f1: number;
+  }>;
+};
+
+type PredictiveEvaluationResponse = {
+  ok: boolean;
+  algorithm: "predictive";
+  evaluation: PredictiveEvaluation;
+};
+
 type CachedResultBundle = {
-  algorithm: AlgorithmMode;
+  algorithm: ExtendedAlgorithmMode;
   results: CareerResult[];
   traits: TraitScore[];
   source: "server" | "offline";
@@ -81,7 +122,7 @@ type CachedResultBundle = {
 
 const QUIZ_RESULT_CACHE_KEY = "campuscompass.quiz.result";
 
-function getCacheKey(algorithm: AlgorithmMode): string {
+function getCacheKey(algorithm: ExtendedAlgorithmMode): string {
   return `${QUIZ_RESULT_CACHE_KEY}.${algorithm}`;
 }
 
@@ -90,7 +131,7 @@ function canUseBrowserStorage(): boolean {
 }
 
 function loadCachedResults(
-  algorithm: AlgorithmMode,
+  algorithm: ExtendedAlgorithmMode,
 ): CachedResultBundle | null {
   if (!canUseBrowserStorage()) {
     return null;
@@ -123,20 +164,47 @@ function ResultsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAlgorithmParam = searchParams.get("algorithm")?.toLowerCase();
-  const requestedAlgorithm: AlgorithmMode =
+  const requestedAlgorithm: ExtendedAlgorithmMode =
     requestedAlgorithmParam === "hybrid"
       ? "hybrid"
       : requestedAlgorithmParam === "adaptive"
         ? "adaptive"
-        : "classic";
+        : requestedAlgorithmParam === "predictive"
+          ? "predictive"
+          : "classic";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [careerResults, setCareerResults] = useState<CareerResult[]>([]);
   const [traitScores, setTraitScores] = useState<TraitScore[]>([]);
   const [algorithmLabel, setAlgorithmLabel] =
-    useState<AlgorithmMode>(requestedAlgorithm);
+    useState<ExtendedAlgorithmMode>(requestedAlgorithm);
   const [quizVariant, setQuizVariant] =
     useState<ResultsResponse["quizVariant"]>(null);
+  const [predictiveEvaluation, setPredictiveEvaluation] =
+    useState<PredictiveEvaluation | null>(null);
+
+  const loadPredictiveEvaluation = async () => {
+    try {
+      const response = await fetch(`/api/results/evaluate`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        setPredictiveEvaluation(null);
+        return;
+      }
+
+      const payload = (await response.json()) as PredictiveEvaluationResponse;
+      if (!payload.ok) {
+        setPredictiveEvaluation(null);
+        return;
+      }
+
+      setPredictiveEvaluation(payload.evaluation);
+    } catch {
+      setPredictiveEvaluation(null);
+    }
+  };
 
   const loadResults = async () => {
     try {
@@ -170,7 +238,8 @@ function ResultsPageContent() {
       setAlgorithmLabel(result.algorithm ?? requestedAlgorithm);
       setQuizVariant(result.quizVariant ?? null);
       saveCachedResults({
-        algorithm: (result.algorithm ?? requestedAlgorithm) as AlgorithmMode,
+        algorithm: (result.algorithm ??
+          requestedAlgorithm) as ExtendedAlgorithmMode,
         results: result.results,
         traits: result.traits,
         source: "server",
@@ -197,8 +266,17 @@ function ResultsPageContent() {
 
   useEffect(() => {
     void loadResults();
+    if (requestedAlgorithm === "predictive") {
+      void loadPredictiveEvaluation();
+    } else {
+      setPredictiveEvaluation(null);
+    }
+
     const interval = setInterval(() => {
       void loadResults();
+      if (requestedAlgorithm === "predictive") {
+        void loadPredictiveEvaluation();
+      }
     }, 15000);
 
     // Connect to SSE for real-time results updates
@@ -273,6 +351,16 @@ function ResultsPageContent() {
                 Adaptive
               </Button>
             </Link>
+            <Link href="/dashboard/results?algorithm=predictive">
+              <Button
+                size="sm"
+                variant={
+                  algorithmLabel === "predictive" ? "default" : "outline"
+                }
+              >
+                Predictive
+              </Button>
+            </Link>
           </div>
           {quizVariant ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -306,6 +394,91 @@ function ResultsPageContent() {
           </TabsList>
 
           <TabsContent value="careers" className="space-y-6 mt-8">
+            {algorithmLabel === "predictive" && predictiveEvaluation ? (
+              <Card className="border border-slate-200/80 bg-white/90 p-6 shadow-md sm:p-8">
+                <div className="space-y-3">
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    Predictive Model Evaluation
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    Validation: {predictiveEvaluation.validation} | Model: KNN +
+                    Bayesian prior
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                    <Badge variant="outline">
+                      Accuracy: {predictiveEvaluation.accuracy}%
+                    </Badge>
+                    <Badge variant="outline">
+                      Macro F1: {predictiveEvaluation.macroF1}%
+                    </Badge>
+                    <Badge variant="outline">
+                      Precision: {predictiveEvaluation.macroPrecision}%
+                    </Badge>
+                    <Badge variant="outline">
+                      Recall: {predictiveEvaluation.macroRecall}%
+                    </Badge>
+                    <Badge variant="outline">
+                      Baseline: {predictiveEvaluation.baselineMajorityAccuracy}%
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Samples: {predictiveEvaluation.sampleCount} | Classes:{" "}
+                    {predictiveEvaluation.classCount}
+                  </p>
+                  {predictiveEvaluation.confusionMatrix.length > 0 ? (
+                    <div className="rounded-md border border-border/50 bg-background/80 p-3 text-xs text-slate-600 space-y-2">
+                      <p className="font-semibold text-slate-700">
+                        Confusion Matrix Highlights
+                      </p>
+                      <div className="space-y-1">
+                        {predictiveEvaluation.confusionMatrix
+                          .slice(0, 8)
+                          .map((entry) => (
+                            <div
+                              key={`${entry.actual}-${entry.predicted}`}
+                              className="flex items-center justify-between gap-2"
+                            >
+                              <span className="truncate">
+                                {entry.actual} → {entry.predicted}
+                              </span>
+                              <Badge variant="outline">{entry.count}</Badge>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {predictiveEvaluation.perCareer.length > 0 ? (
+                    <div className="rounded-md border border-border/50 bg-background/80 p-3 text-xs text-slate-600 space-y-2">
+                      <p className="font-semibold text-slate-700">
+                        Per-Career Metrics (Precision / Recall / F1)
+                      </p>
+                      <div className="space-y-1">
+                        {predictiveEvaluation.perCareer
+                          .slice(0, 8)
+                          .map((row) => (
+                            <div
+                              key={row.careerKey}
+                              className="flex flex-wrap items-center gap-2"
+                            >
+                              <span className="min-w-[140px] font-medium">
+                                {row.careerKey}
+                              </span>
+                              <Badge variant="outline">
+                                P {row.precision}%
+                              </Badge>
+                              <Badge variant="outline">R {row.recall}%</Badge>
+                              <Badge variant="outline">F1 {row.f1}%</Badge>
+                              <Badge variant="secondary">N {row.support}</Badge>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </Card>
+            ) : null}
+
             <div className="space-y-4">
               {careerResults.map((career) => (
                 <Card
@@ -424,6 +597,37 @@ function ResultsPageContent() {
                                 .attemptReliability
                             }
                             %
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {algorithmLabel === "predictive" ? (
+                    <div className="mb-6 rounded-lg border border-border/40 bg-secondary/30 p-3 text-sm text-muted-foreground space-y-1">
+                      <p>
+                        Predicted Probability:{" "}
+                        {career.predictedProbability ?? "-"}% | Confidence:{" "}
+                        {career.confidence ?? "-"}%
+                      </p>
+                      {career.predictiveDetails ? (
+                        <div className="mt-2 rounded-md border border-border/50 bg-background/80 p-3 space-y-2 text-xs">
+                          <p className="font-semibold text-foreground">
+                            Predictive Model Signals
+                          </p>
+                          <p>
+                            Model: KNN + Bayesian Prior | Training samples:{" "}
+                            {career.predictiveDetails.trainingSamples} |
+                            Neighbors used:{" "}
+                            {career.predictiveDetails.neighborsUsed}
+                          </p>
+                          <p>
+                            Agreement:{" "}
+                            {career.predictiveDetails.neighborAgreement}% |
+                            Prior: {career.predictiveDetails.priorProbability}%
+                            | KNN: {career.predictiveDetails.knnProbability}% |
+                            Ensemble:{" "}
+                            {career.predictiveDetails.ensembleProbability}%
                           </p>
                         </div>
                       ) : null}

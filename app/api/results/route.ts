@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDbPool } from "@/lib/db";
 import { computeAdaptiveResults } from "@/lib/recommendation-engine-adaptive";
 import { computeHybridResults } from "@/lib/recommendation-engine-hybrid";
+import { computePredictiveResults } from "@/lib/recommendation-engine-predictive";
 import { computeAndPersistResults } from "@/lib/recommendation-engine";
 import { getAuthenticatedUserId } from "@/lib/server-auth";
 
@@ -141,6 +142,55 @@ export async function GET(request: NextRequest) {
       {
         ok: true,
         algorithm: "adaptive",
+        results,
+        traits,
+        quizVariant: variant
+          ? {
+              id: variant.id,
+              key: variant.variant_key,
+              generationMode: variant.generation_mode,
+              questionCount: variant.question_count,
+              createdAt: variant.created_at,
+            }
+          : null,
+      },
+      { status: 200 },
+    );
+  }
+
+  if (algorithm === "predictive") {
+    const predictiveRows = await computePredictiveResults(userId);
+
+    const [traitRows] = await pool.query(
+      `SELECT trait, score
+       FROM trait_scores
+       WHERE student_id = ?
+       ORDER BY score DESC
+       LIMIT 8`,
+      [userId],
+    );
+
+    const results = predictiveRows.map((row) => ({
+      rank: row.rank,
+      careerKey: row.careerKey,
+      title: row.careerTitle,
+      match: Number(row.matchScore),
+      predictedProbability: Number(row.predictedProbability),
+      description: row.description,
+      traits: row.traits,
+      predictiveDetails: row.predictiveDetails,
+      confidence: row.confidence,
+    }));
+
+    const traits = (traitRows as TraitRow[]).map((row) => ({
+      trait: row.trait,
+      score: Number(row.score),
+    }));
+
+    return NextResponse.json(
+      {
+        ok: true,
+        algorithm: "predictive",
         results,
         traits,
         quizVariant: variant
